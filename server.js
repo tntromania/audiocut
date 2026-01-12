@@ -8,7 +8,7 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 🔒 CONFIG FIX — NU MODIFICA
+// 🔒 CONFIG FIX
 const APP_PATH = '/apps/audiocut';
 const APP_DIR = path.join(__dirname, 'apps', 'audiocut');
 const PUBLIC_DIR = path.join(APP_DIR, 'public');
@@ -21,7 +21,9 @@ app.use(express.json());
 
 // ---------------- DIRECTOARE ----------------
 [UPLOADS_DIR, PROCESSED_DIR].forEach(dir => {
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
 });
 
 // ---------------- STATIC FILES ----------------
@@ -35,14 +37,16 @@ app.get([APP_PATH, `${APP_PATH}/`, `${APP_PATH}/index.html`], (req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
-// Fallback (refresh safe)
+// Fallback (refresh-safe)
 app.get(`${APP_PATH}/*`, (req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
 // ---------------- API ----------------
 app.post(`${APP_PATH}/api/smart-cut`, upload.single('file'), (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'Fisier lipsa' });
+    if (!req.file) {
+        return res.status(400).json({ error: 'Fisier lipsa' });
+    }
 
     const inputFile = req.file.path;
     const outputFile = path.join(PROCESSED_DIR, `cut_${Date.now()}.mp3`);
@@ -82,4 +86,7 @@ app.get('/health', (req, res) => {
 });
 
 // ---------------- START ----------------
-app.listen(
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 AudioCut pornit pe port ${PORT}`);
+    console.log(`🌐 https://creatorsmart.ro${APP_PATH}/`);
+});
