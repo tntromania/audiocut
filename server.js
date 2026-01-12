@@ -8,72 +8,78 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
+// 🔒 CONFIG FIX — NU MODIFICA
+const APP_PATH = '/apps/audiocut';
+const APP_DIR = path.join(__dirname, 'apps', 'audiocut');
+const PUBLIC_DIR = path.join(APP_DIR, 'public');
+const UPLOADS_DIR = path.join(APP_DIR, 'uploads');
+const PROCESSED_DIR = path.join(APP_DIR, 'processed');
+
+// ---------------- MIDDLEWARE ----------------
 app.use(cors());
 app.use(express.json());
 
-// Servim fișierele statice din folderul 'public' direct la rădăcină
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Creăm directoarele necesare la pornire
-const dirs = ['uploads', 'processed'];
-dirs.forEach(dir => {
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+// ---------------- DIRECTOARE ----------------
+[UPLOADS_DIR, PROCESSED_DIR].forEach(dir => {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-// Configurare Upload
-const upload = multer({ dest: 'uploads/' });
+// ---------------- STATIC FILES ----------------
+app.use(APP_PATH, express.static(PUBLIC_DIR));
 
-// --- RUTE ---
+// ---------------- UPLOAD ----------------
+const upload = multer({ dest: UPLOADS_DIR });
 
-// 1. Pagina principală (Hub-ul aplicației Audio Slicer)
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// ---------------- UI ----------------
+app.get([APP_PATH, `${APP_PATH}/`, `${APP_PATH}/index.html`], (req, res) => {
+    res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
-// 2. Endpoint-ul de procesare API
-app.post('/api/smart-cut', upload.single('file'), (req, res) => {
+// Fallback (refresh safe)
+app.get(`${APP_PATH}/*`, (req, res) => {
+    res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+});
+
+// ---------------- API ----------------
+app.post(`${APP_PATH}/api/smart-cut`, upload.single('file'), (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Fisier lipsa' });
 
     const inputFile = req.file.path;
-    const outputFile = path.join('processed', `cut_${Date.now()}.mp3`);
+    const outputFile = path.join(PROCESSED_DIR, `cut_${Date.now()}.mp3`);
 
-    const threshold = req.body.threshold || '-30dB'; 
+    const threshold = req.body.threshold || '-30dB';
     const minSilence = req.body.minSilence || '0.3';
 
-    console.log(`[CUT] Procesez: ${req.file.originalname}`);
+    console.log(`[AUDIOCUT] Procesare: ${req.file.originalname}`);
 
     ffmpeg(inputFile)
-        .audioFilters(`silenceremove=stop_periods=-1:stop_duration=${minSilence}:stop_threshold=${threshold}`)
+        .audioFilters(
+            `silenceremove=stop_periods=-1:stop_duration=${minSilence}:stop_threshold=${threshold}`
+        )
         .on('end', () => {
-            console.log('[CUT] Procesare finalizată cu succes.');
-            res.download(outputFile, 'tight_audio.mp3', (err) => {
-                // Curățenie după download
+            res.download(outputFile, 'tight_audio.mp3', () => {
                 try {
                     if (fs.existsSync(inputFile)) fs.unlinkSync(inputFile);
-                    setTimeout(() => { 
-                        if (fs.existsSync(outputFile)) fs.unlinkSync(outputFile); 
-                    }, 60000); // Lăsăm 1 minut fereastră pentru download
-                } catch(e) { console.error("Eroare cleanup:", e); }
+                    setTimeout(() => {
+                        if (fs.existsSync(outputFile)) fs.unlinkSync(outputFile);
+                    }, 60000);
+                } catch (e) {
+                    console.error('Cleanup error:', e);
+                }
             });
         })
-        .on('error', (err) => {
+        .on('error', err => {
             console.error('[FFMPEG ERROR]', err);
-            res.status(500).json({ error: 'Eroare la procesarea audio.' });
-            try {
-                if (fs.existsSync(inputFile)) fs.unlinkSync(inputFile);
-            } catch(e) {}
+            res.status(500).json({ error: 'Eroare procesare audio' });
+            if (fs.existsSync(inputFile)) fs.unlinkSync(inputFile);
         })
         .save(outputFile);
 });
 
-// 3. Health check pentru Coolify
+// ---------------- HEALTH ----------------
 app.get('/health', (req, res) => {
-    res.status(200).send('ok');
+    res.status(200).json({ status: 'ok' });
 });
 
-// Pornire Server
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Audio Slicer API activ pe portul ${PORT}`);
-    console.log(`🔗 Destinație: https://api.creatorsmart.ro`);
-});
+// ---------------- START ----------------
+app.listen(
